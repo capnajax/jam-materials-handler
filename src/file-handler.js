@@ -1,5 +1,6 @@
 'use strict';
 import { promises as fs } from 'fs';
+import http from 'http';
 import path from 'path';
 import MarkdownIt from 'markdown-it';
 // TOC plugin for automatic table of contents
@@ -13,18 +14,32 @@ const INCLUDES = ['header', 'footer', 'head', 'image-modal'];
  * @param {string} filename the name of the file without the `.html` extension
  * @returns {Promise<string>} the content of the include file
  */
-async function includeHtml(filename) {
-  if (!INCLUDES.includes(filename)) {
-    throw new Error(`Include file "${filename}" is not recognized.`);
-  }
-  const filePath = path.join(INCLUDES_DIR, filename+'.html');
-  try {
-    return await fs.readFile(filePath, 'utf-8');
-  } catch (error) {
-    throw new Error(`Failed to read include file "${filename}": ${error.message}`);
-  }
+function includeHtml(filename) {
+  return new Promise((resolve, reject) => {
+    if (!INCLUDES.includes(filename)) {
+      throw new Error(`Include file "${filename}" is not recognized.`);
+    }
+    const includesPort = process.env.INCLUDES_SERVICE_PORT || 80;
+    const includesHost = process.env.INCLUDES_SERVICE_HOST || 'localhost';
+    const path =
+      `http://${includesHost}:${includesPort}/includes/${filename}.html`;
+    const request = http.get(path, res => {
+      let data = '';
+      res.on('data', chunk => {
+        data += chunk;
+      });
+      res.on('end', () => {
+        resolve(data);
+      });
+      res.on('error', () => {
+        reject(`Error fetching include file "${filename}"`);
+      });
+      if (res.statusCode != 200) {
+        reject(`Failed to fetch include file "${filename}": ${res.statusCode}`);
+      }
+    });
+  });
 }
-
 
 // Initialize markdown-it with default options
 const md = new MarkdownIt({
