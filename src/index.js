@@ -136,6 +136,40 @@ class MDServer {
         return;
       }
 
+      // if the request is for favicon.ico, return 204 No Content
+      if (requestPath === '/favicon.ico') {
+        this.sendResponse(res, 204, Buffer.alloc(0), 'image/x-icon');
+        return;
+      }
+
+      console.log('Request path:', requestPath);
+      console.log('NODE_ENV:', process.env.NODE_ENV);
+      if (process.env.NODE_ENV === 'local') {
+        let topPath = '';
+        try {
+          topPath = requestPath.split('/')[1];
+        } catch (e) {}
+        console.log('Top path segment:', topPath);
+        if (['js', 'public'].includes(topPath)) {
+          const innerPort = process.env.INCLUDES_SERVICE_PORT || 80;
+          const path = `http://localhost:${innerPort}/${requestPath}`;
+          console.log(`Proxying public file request to: ${path}`);
+          let data = '';
+          http.get(path, (innerRes) => {
+            innerRes.on('data', (chunk) => {
+              data += chunk;
+            });
+            innerRes.on('end', () => {
+              this.sendResponse(res, 200, Buffer.from(data), innerRes.headers['content-type'] || 'application/octet-stream');
+            });
+          }).on('error', (err) => {
+            console.error('Error fetching include file:', err);
+            this.sendResponse(res, 500, Buffer.from('Internal Server Error'), 'text/plain');
+          });
+          return;
+        }
+      }
+
       // Resolve the file using our file handler
       const result = await resolveFile(requestPath, this.config.get('basePath'));
       

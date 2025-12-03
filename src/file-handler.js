@@ -5,8 +5,9 @@ import path from 'path';
 import MarkdownIt from 'markdown-it';
 // TOC plugin for automatic table of contents
 import markdownItTocDoneRight from 'markdown-it-toc-done-right';
+// Comment plugin for development comments
+import {markdownItComment, markdownItIssue} from './markdown-it/comment.js';
 
-const INCLUDES_DIR = path.join('/shared-includes', 'includes');
 const INCLUDES = ['header', 'footer', 'head', 'image-modal'];
 
 /**
@@ -35,7 +36,7 @@ function includeHtml(filename) {
         reject(`Error fetching include file "${filename}"`);
       });
       if (res.statusCode != 200) {
-        reject(`Failed to fetch include file "${filename}": ${res.statusCode}`);
+        reject(`Failed to fetch include file "${path}": ${res.statusCode}`);
       }
     });
   });
@@ -59,6 +60,19 @@ md.use(markdownItTocDoneRight, {
   itemClass: 'toc-item',
   linkClass: 'toc-link'
 });
+
+// Add comment plugin
+md.use(markdownItComment, {
+  debug:
+    process.env.DEBUG === 'true' || 
+    ['local', 'development'].includes(process.env.NODE_ENV)
+});
+md.use(markdownItIssue, {
+  debug:
+    process.env.DEBUG === 'true' || 
+    ['local', 'development'].includes(process.env.NODE_ENV)
+});
+
 
 // Add custom heading renderer for automatic IDs
 md.renderer.rules.heading_open = function (tokens, idx, options, env, renderer) {
@@ -394,7 +408,9 @@ async function convertMarkdownToHtml(markdownContent, title = 'Document') {
 </head>
 <body>
   ${await neededIncludesPromises.header}
-  ${htmlBody}
+  <div class="markdown-content">
+    ${htmlBody}
+  </div>
   ${await neededIncludesPromises.footer}
   ${await neededIncludesPromises.imageModal}
 </body>
