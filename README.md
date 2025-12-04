@@ -2,32 +2,55 @@
 
 A Node.js HTTP server that serves markdown files with template variable processing.
 
-## Quick Start
+## Local testing
 
-```bash
-# Install dependencies
-npm install
+For testing and preview purposes, this can be operated from a local desktop without a full-fledged jam-in-a-box environment.
 
-# Start both servers (main + admin)
-npm start
-```
+To set up the local environment, do the following:
 
-**Servers:**
+1. Clone three repositories into the same parent folder. These three projects are tightly coupled so you need all three to make the navigator work locall.
 
-- **Main Server**: <http://localhost:8080> - Serves markdown files with template processing
-- **Admin Server**: <http://localhost:8081> - Web interface for template configuration
+    1. [IBMIntegration/jam-materials](https://github.com/IBMIntegration/jam-materials). It is recommended to fork this repository before cloning so you can make updates to the tech jam materials.
+    1. [IBMIntegration/jam-materials-handler](https://github.com/IBMIntegration/jam-materials-handler) or a fork thereof.
+    1. [IBMIntegration/jam-navigator](https://github.com/IBMIntegration/jam-navigator).
 
-## Commands
+1. Install the npm libraries
 
-```bash
-npm start              # Start both servers
-npm test               # Run all tests
-npm run test:unit      # Run unit tests only
-npm run test:integration # Run integration tests only
-npm run admin          # Start admin server only
-```
+    ```sh
+    cd jam-materials-handler
+    npm install
+    ```
 
-## Template Variables
+1. Start the environment
+
+    ```sh
+    ./run-local.sh
+    ```
+
+1. Point your browser to [http://localhost:8080/tracks]
+
+1. To refresh your test enviornment, hit `R`, to exit, `Q`.
+
+## Markdown extensions
+
+This application adds a few extensions to Markdown for convenience.
+
+### Annotations
+
+There are a few types of annotations availble that are not visible to the end user that may show up in DEBUG mode:
+
+1. `${comment @initials my comment text}` puts a note in a file
+1. `${issue @initials my comment text}` same as `${comment}` but in red
+1. `${status for a block of text at the head of the document to explain what needs to be done and who has reviewed the document}
+
+### Gadgets
+
+You can add some generated content by adding these tags
+
+1. `${toc}` Adds a table of contents
+1. `${breadcrumbs}` Adds generated breadcrumbs
+
+### Template strings
 
 Use `{{ variable | default }}` syntax in your markdown files:
 
@@ -36,68 +59,3 @@ Use `{{ variable | default }}` syntax in your markdown files:
 
 This is a {{ type | demo }} file.
 ```
-
-Configure variables via:
-
-- Admin web interface: <http://localhost:8081>
-- Direct config file: `template-config.json`
-- Environment variables
-
-## Configuration
-
-**Server options (run from md-handler directory):**
-
-```bash
-node src/index.js --port 8080 --base-path ./test-content --host 0.0.0.0
-```
-
-**Or with absolute paths:**
-
-```bash
-node src/index.js --port 8080 --base-path /full/path/to/content --host 0.0.0.0
-```
-
-**Environment variables:**
-
-- `PORT` - Main server port (default: 8080)
-- `ADMIN_PORT` - Admin server port (default: 8081)
-- `BASE_PATH` - Directory to serve files from
-- `HOST` - Host to bind to (default: 0.0.0.0)
-
-## Project Structure
-
-```text
-src/
-├── index.js           # Main entry point
-├── file-handler.js    # Core file processing
-└── admin.js          # Admin server
-
-test/
-├── test-templates.js  # Unit tests
-├── test-integration.js # Integration tests
-└── run-tests.js      # Test runner
-```
-
-## Health Checks
-
-- Main: <http://localhost:8080/health>
-- Admin: <http://localhost:8081/health>
-
-## Testing
-
-```bash
-# Test markdown to HTML conversion
-curl http://localhost:8080/sample.html  # Converts test-content/sample.md to HTML
-
-# Test direct markdown
-curl http://localhost:8080/sample.md    # Returns raw markdown with template processing
-
-# Health check
-curl http://localhost:8080/health       # Returns "OK"
-```
-
-## Troubleshooting
-
-**404 File not found**: Ensure the `--base-path` points to the directory containing your files, and run the command from the md-handler directory or use absolute paths.
-
-**Module not found**: Make sure you're in the md-handler directory when running `node src/index.js`, or use the absolute path to the file.
