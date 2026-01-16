@@ -5,7 +5,7 @@ import url from 'url';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { resolveFile } from './file-handler.js';
+import { loadTemplateConfig, resolveFile } from './file-handler.js';
 import { AdminServer, AdminConfig } from './admin.js';
 import { ConfigReader } from './config-reader.js';
 
@@ -234,6 +234,8 @@ async function main() {
     // Load configuration
     const configManager = new Config();
     const config = await configManager.load();
+
+    await loadTemplateConfig();
 
     // Validate base path
     try {
