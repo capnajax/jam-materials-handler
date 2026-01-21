@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { loadTemplateConfig, resolveFile } from './file-handler.js';
 import { AdminServer, AdminConfig } from './admin.js';
 import { ConfigReader } from './config-reader.js';
+import restClientProxy from './rest-client-proxy.js';
 
 /**
  * Main server configuration using the shared ConfigReader
@@ -128,8 +129,19 @@ class MDServer {
       // Log the request
       console.log(`${new Date().toISOString()} ${req.method} ${requestPath}`);
 
-      // Only handle GET requests
-      if (req.method !== 'GET') {
+      if (requestPath.startsWith('/proxy/')) {
+        // Handle proxy requests
+        const proxyResult = await restClientProxy(req, res);
+        this.sendResponse(
+          res,
+          proxyResult.statusCode || 500,
+          JSON.stringify(proxyResult),
+          'application/json'
+        );
+        return;
+
+      } else if (req.method !== 'GET') {
+        // Besides the proxy above, only handle GET requests
         this.sendResponse(res, 405, Buffer.from('Method Not Allowed'), 'text/plain');
         return;
       }
