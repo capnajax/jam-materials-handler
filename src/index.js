@@ -3,10 +3,7 @@
 import http from 'http';
 import url from 'url';
 import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { loadTemplateConfig, resolveFile } from './file-handler.js';
-import { AdminServer, AdminConfig } from './admin.js';
+import { setTemplateConfig, resolveFile } from './file-handler.js';
 import { ConfigReader } from './config-reader.js';
 import restClientProxy from './rest-client-proxy.js';
 
@@ -247,7 +244,9 @@ async function main() {
     const configManager = new Config();
     const config = await configManager.load();
 
-    await loadTemplateConfig();
+    console.log('configManager.load got', config);
+
+    setTemplateConfig(config);
 
     // Validate base path
     try {
@@ -264,12 +263,6 @@ async function main() {
     // Create and start main server
     const server = new MDServer(configManager);
     await server.start();
-
-    // Create and start admin server
-    const adminConfigManager = new AdminConfig();
-    const adminConfig = await adminConfigManager.load();
-    const adminServer = new AdminServer(adminConfig);
-    await adminServer.start();
 
     // Graceful shutdown
     const shutdown = async () => {

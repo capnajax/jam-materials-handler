@@ -46,36 +46,30 @@ class ConfigReader {
   /**
    * Load configuration from a JSON file
    */
-  async loadConfigFile(...tryPaths) {
-    const configPathPossibilities = [
-      path.join(__dirname, '..', 'config', this.configFileName),
-      path.join(__dirname, '..', '..', 'jam-navigator', 'config', this.configFileName)
-    ];
-
-    if (tryPaths.length === 0) {
-      tryPaths = configPathPossibilities;
-    }
-
-    const configPath = tryPaths.shift();
-    try {
-      const configData = await fs.readFile(configPath, 'utf8');
-      const fileConfig = JSON.parse(configData);
-      // do not await
-      Object.assign(this.config, fileConfig);
-      console.log(`Loaded ${this.prefix}config from file:`, configPath);
-    } catch (error) {
-      // Config file is optional
-      if (error.code !== 'ENOENT') {
-        console.warn(`Warning: Error reading ${this.prefix} config file:`, error.message);
-      } else {
-        console.debug(`No ${this.prefix}config file found at:`, configPath);
-        if (tryPaths.length > 0) {
-          return this.loadConfigFile(...tryPaths);
-        } else {
-          console.error(`Error loading ${this.prefix}config file`);
-        }
+  async loadConfigFile() {
+    const setupDir = path.join(__dirname, '..', '..', 'setup');
+    // there should be zero overlap between the files so I can just concatenate
+    // them.
+    const setupFilesPromises = ['setup.json', 'secret.json'].map(async f => {
+      try {
+        const contentStr = await fs.readFile(path.join(setupDir, f), 'utf8');
+        const contentAr = JSON.parse(contentStr);
+        return contentAr;
+      } catch (error) {
+        console.warn(`Warning: Error reading setup file ${f}:`, error.message);
+        return null;
       }
-    }
+    });
+    const resources = (await Promise.all(setupFilesPromises)).reduce(
+      (acc, cur) => {
+        console.log('acc == ', acc);
+        console.log('cur == ', cur);
+        return acc.concat(cur);
+      }, []
+    );
+    this.config.resources = resources
+
+    console.log('this.config ==', JSON.stringify(this.config, null, 2));
   }
 
   /**
