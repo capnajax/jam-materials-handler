@@ -3,12 +3,25 @@ import { promises as fs } from 'fs';
 import http from 'http';
 import path from 'path';
 import MarkdownIt from 'markdown-it';
+import Handlebars from 'handlebars';
 // TOC plugin for automatic table of contents
 import markdownItTocDoneRight from 'markdown-it-toc-done-right';
 // Comment plugin for development comments
-import {markdownItComment, markdownItIssue} from './markdown-it/comment.js';
+import { markdownItComment, markdownItIssue } from './markdown-it/comment.js';
 
 const INCLUDES = ['header', 'footer', 'head', 'image-modal'];
+
+// Register Handlebars helper for {{ var | default }} syntax
+// Usage: {{ variableName | default value }}
+// Example: {{ title | My Default Title }} - returns value of 'title' variable, or "My Default Title" if not defined
+// Example: {{ author | Unknown }} - returns value of 'author' variable, or "Unknown" if not defined
+Handlebars.registerHelper('default', function(value, defaultValue) {
+  // If value is undefined or null, use the default  
+  if (value === undefined || value === null || value === '') {
+    return defaultValue;
+  }
+  return value;
+});
 
 /**
  * Reads a file from the include directory
@@ -22,9 +35,9 @@ function includeHtml(filename) {
     }
     const includesPort = process.env.INCLUDES_SERVICE_PORT || 80;
     const includesHost = process.env.INCLUDES_SERVICE_HOST || 'localhost';
-    const path =
+    const uri =
       `http://${includesHost}:${includesPort}/includes/${filename}.html`;
-    const request = http.get(path, res => {
+    const request = http.get(uri, res => {
       let data = '';
       res.on('data', chunk => {
         data += chunk;
@@ -36,7 +49,7 @@ function includeHtml(filename) {
         reject(`Error fetching include file "${filename}"`);
       });
       if (res.statusCode != 200) {
-        reject(`Failed to fetch include file "${path}": ${res.statusCode}`);
+        reject(`Failed to fetch include file "${uri}": ${res.statusCode}`);
       }
     });
   });
@@ -75,7 +88,9 @@ md.use(markdownItIssue, {
 
 
 // Add custom heading renderer for automatic IDs
-md.renderer.rules.heading_open = function (tokens, idx, options, env, renderer) {
+md.renderer.rules.heading_open = function (
+  tokens, idx, options, env, renderer
+) {
   const token = tokens[idx];
   const level = token.tag;
   
@@ -95,9 +110,9 @@ md.renderer.rules.heading_open = function (tokens, idx, options, env, renderer) 
 };
 
 /**
- * Generates a URL-friendly slug from text
+ * Generates a slug (a URL-friendly version of a string) from text.
  * @param {string} text - The text to convert to a slug
- * @returns {string} URL-friendly slug
+ * @returns {string} the slug
  */
 function generateSlug(text) {
   return text
@@ -112,22 +127,76 @@ function generateSlug(text) {
 // Default template configuration
 const defaultTemplateConfig = {
   variables: {
-    title: "Document",
-    author: "Unknown",
-    date: new Date().toLocaleDateString(),
-    version: "1.0.0",
-    organization: "Your Organization"
+    configMaps: {},
+    secrets: {},
+    resources: []
   }
 };
 
 let templateConfig = { ...defaultTemplateConfig };
 
 /**
- * Updates the template configuration (called from admin module)
- * @param {Object} config - New template configuration
+ * Converts markdown content to HTML with basic styling
+ * @param {string} markdownContent - The markdown content to convert
+ * @param {string} title - The title for the HTML page
+ * @returns {string} Complete HTML document
  */
-function updateTemplateConfig(config) {
-  templateConfig = { ...defaultTemplateConfig, ...config };
+async function convertMarkdownToHtml(markdownContent, title = 'Document') {
+  const htmlBody = md.render(markdownContent);
+  
+  // load these in parallel
+  const neededIncludesPromises = {
+    head: includeHtml('head'),
+    header: includeHtml('header'),
+    footer: includeHtml('footer'),
+    imageModal: includeHtml('image-modal')
+  };
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  ${await neededIncludesPromises.head}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <link rel="stylesheet" type="text/css" href="/public/markdown-it.css">
+</head>
+<body>
+  ${await neededIncludesPromises.header}
+  <div class="markdown-content">
+    ${htmlBody}
+  </div>
+  ${await neededIncludesPromises.footer}
+  ${await neededIncludesPromises.imageModal}
+</body>
+</html>`;
+}
+
+/**
+ * Gets the appropriate Content-Type header for a file extension
+ * @param {string} ext - File extension (including the dot)
+ * @returns {string} Content-Type header value
+ */
+function getContentType(ext) {
+  const contentTypes = {
+    '.html': 'text/html; charset=utf-8',
+    '.htm': 'text/html; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.js': 'application/javascript; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon',
+    '.txt': 'text/plain; charset=utf-8',
+    '.md': 'text/markdown; charset=utf-8',
+    '.pdf': 'application/pdf',
+    '.zip': 'application/zip'
+  };
+  
+  return contentTypes[ext] || 'application/octet-stream';
 }
 
 /**
@@ -136,6 +205,54 @@ function updateTemplateConfig(config) {
  */
 function getTemplateConfig() {
   return templateConfig;
+}
+
+/**
+ * Load a template config from a JSON file
+ * @returns {Object} Template configuration
+ */
+async function setTemplateConfig(config) {
+
+  // config comes in as an array of lightly-trimmed resources. Let's arrange
+  // them into a hierarchial structure and trim it more carefully.
+  const tc = {
+    configMaps:{},
+    routes: {},
+    secrets:{}
+  }; // template config
+
+  for (const item of config.resources) {
+    console.log('item:', item);
+    const {name, namespace} = item.metadata;
+    switch (item.kind) {
+    case 'ConfigMap':
+      tc.configMaps[name] = {
+        namespace,
+        data: item.data
+      };
+      break;
+    case 'Route':
+      tc.routes[name] = {
+        namespace,
+        host: item.spec.host
+      };
+      break;
+    case 'Secret':
+      tc.secrets[name] = {
+        namespace,
+        data: item.data,
+        type: item.type
+      };
+      break;
+    default:
+      console.log(`Ignoring ${item.kind} ${namespace}/${name}`);
+      break;
+    }
+  }
+
+  console.log('templating config:', JSON.stringify(tc, null, 2));
+
+  templateConfig = {variables: tc};
 }
 
 /**
@@ -195,7 +312,7 @@ function parseTemplateVariables(content) {
       ? {span: `<span class='failed-substitution'>${name}</span>`}
       : defaultValue;
 
-    if (!isNil(templateConfig.variables[name])) {
+    if (!isNil(templateConfig?.variables?.[name])) {
       value = templateConfig.variables[name];
     }
 
@@ -336,7 +453,67 @@ export async function resolveFile(requestPath, basePath) {
       fullPath = path.join(fullPath, 'index.html')
     }
 
-    // Try to read the requested file
+    // Special handling for HTML requests: check for .md.hbs and .md first
+    if (path.extname(fullPath).toLowerCase() === '.html') {
+      // Priority 1: Check for .md.hbs (Handlebars template)
+      const handlebarsPath = fullPath.replace(/\.html?$/i, '.md.hbs');
+      
+      try {
+        const handlebarsContent = await fs.readFile(handlebarsPath, 'utf8');
+        // Preprocess: Convert {{ var | default }} to {{default var "default"}}
+        const preprocessed = handlebarsContent.replace(
+          /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\|\s*([^}]*?)\s*\}\}/g,
+          (match, varName, defaultValue) => {
+            // Escape quotes in default value
+            const escapedDefault = defaultValue.replace(/"/g, '\\"');
+            return `{{default ${varName} "${escapedDefault}"}}`;
+          }
+        );
+        
+        // Compile and execute Handlebars template with variables
+        const template = Handlebars.compile(preprocessed);
+        console.log('DOING SUBSITUTITIONS WITH', templateConfig.variables);
+        const processedMarkdown = template(templateConfig.variables || {});
+        const htmlContent = await convertMarkdownToHtml(
+          processedMarkdown, path.basename(handlebarsPath, '.md.hbs')
+        );
+        
+        return {
+          status: 200,
+          buffer: Buffer.from(htmlContent),
+          contentType: 'text/html; charset=utf-8'
+        };
+      } catch (hbsError) {
+        if (hbsError.code !== 'ENOENT') {
+          throw hbsError;
+        }
+        // If .md.hbs doesn't exist, continue to check for .md
+      }
+      
+      // Priority 2: Check for .md (plain markdown, no template processing)
+      const markdownPath = fullPath.replace(/\.html?$/i, '.md');
+      
+      try {
+        const markdownContent = await fs.readFile(markdownPath, 'utf8');
+        // Convert markdown to HTML without template variable processing
+        const htmlContent = await convertMarkdownToHtml(
+          markdownContent, path.basename(markdownPath, '.md')
+        );
+        
+        return {
+          status: 200,
+          buffer: Buffer.from(htmlContent),
+          contentType: 'text/html; charset=utf-8'
+        };
+      } catch (mdError) {
+        if (mdError.code !== 'ENOENT') {
+          throw mdError;
+        }
+        // If .md doesn't exist, continue to check for .html
+      }
+    }
+
+    // Priority 3: Try to read the requested file directly (including .html files)
     try {
       const fileBuffer = await fs.readFile(fullPath);
       const ext = path.extname(fullPath).toLowerCase();
@@ -348,34 +525,6 @@ export async function resolveFile(requestPath, basePath) {
       };
     } catch (error) {
       if (error.code === 'ENOENT') {
-        // If it's an HTML file that doesn't exist, check for markdown
-        if (path.extname(fullPath).toLowerCase() === '.html') {
-          const markdownPath = fullPath.replace(/\.html?$/i, '.md');
-          
-          try {
-            const markdownContent = await fs.readFile(markdownPath, 'utf8');
-            // Process template variables before converting to HTML
-            const processedMarkdown = parseTemplateVariables(markdownContent);
-            const htmlContent = await convertMarkdownToHtml(
-              processedMarkdown, path.basename(markdownPath, '.md')
-            );
-            
-            return {
-              status: 200,
-              buffer: Buffer.from(htmlContent),
-              contentType: 'text/html; charset=utf-8'
-            };
-          } catch (mdError) {
-            if (mdError.code === 'ENOENT') {
-              return {
-                status: 404,
-                buffer: Buffer.from('File not found')
-              };
-            }
-            throw mdError;
-          }
-        }
-        
         return {
           status: 404,
           buffer: Buffer.from('File not found')
@@ -392,75 +541,10 @@ export async function resolveFile(requestPath, basePath) {
   }
 }
 
-/**
- * Converts markdown content to HTML with basic styling
- * @param {string} markdownContent - The markdown content to convert
- * @param {string} title - The title for the HTML page
- * @returns {string} Complete HTML document
- */
-async function convertMarkdownToHtml(markdownContent, title = 'Document') {
-  const htmlBody = md.render(markdownContent);
-  
-  // load these in parallel
-  const neededIncludesPromises = {
-    head: includeHtml('head'),
-    header: includeHtml('header'),
-    footer: includeHtml('footer'),
-    imageModal: includeHtml('image-modal')
-  };
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  ${await neededIncludesPromises.head}
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
-  <link rel="stylesheet" type="text/css" href="/public/markdown-it.css">
-</head>
-<body>
-  ${await neededIncludesPromises.header}
-  <div class="markdown-content">
-    ${htmlBody}
-  </div>
-  ${await neededIncludesPromises.footer}
-  ${await neededIncludesPromises.imageModal}
-</body>
-</html>`;
-}
-
-/**
- * Gets the appropriate Content-Type header for a file extension
- * @param {string} ext - File extension (including the dot)
- * @returns {string} Content-Type header value
- */
-function getContentType(ext) {
-  const contentTypes = {
-    '.html': 'text/html; charset=utf-8',
-    '.htm': 'text/html; charset=utf-8',
-    '.css': 'text/css; charset=utf-8',
-    '.js': 'application/javascript; charset=utf-8',
-    '.json': 'application/json; charset=utf-8',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.svg': 'image/svg+xml',
-    '.ico': 'image/x-icon',
-    '.txt': 'text/plain; charset=utf-8',
-    '.md': 'text/markdown; charset=utf-8',
-    '.pdf': 'application/pdf',
-    '.zip': 'application/zip'
-  };
-  
-  return contentTypes[ext] || 'application/octet-stream';
-}
-
 export {
   convertMarkdownToHtml,
   getContentType,
-  updateTemplateConfig,
   getTemplateConfig,
-  parseTemplateVariables
+  setTemplateConfig,
 };
 

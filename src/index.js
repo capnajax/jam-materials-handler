@@ -3,11 +3,9 @@
 import http from 'http';
 import url from 'url';
 import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { resolveFile } from './file-handler.js';
-import { AdminServer, AdminConfig } from './admin.js';
+import { setTemplateConfig, resolveFile } from './file-handler.js';
 import { ConfigReader } from './config-reader.js';
+import restClientProxy from './rest-client-proxy.js';
 
 /**
  * Main server configuration using the shared ConfigReader
@@ -128,8 +126,19 @@ class MDServer {
       // Log the request
       console.log(`${new Date().toISOString()} ${req.method} ${requestPath}`);
 
-      // Only handle GET requests
-      if (req.method !== 'GET') {
+      if (requestPath.startsWith('/proxy/')) {
+        // Handle proxy requests
+        const proxyResult = await restClientProxy(req, res);
+        this.sendResponse(
+          res,
+          proxyResult.statusCode || 500,
+          JSON.stringify(proxyResult),
+          'application/json'
+        );
+        return;
+
+      } else if (req.method !== 'GET') {
+        // Besides the proxy above, only handle GET requests
         this.sendResponse(res, 405, Buffer.from('Method Not Allowed'), 'text/plain');
         return;
       }
@@ -235,6 +244,10 @@ async function main() {
     const configManager = new Config();
     const config = await configManager.load();
 
+    console.log('configManager.load got', config);
+
+    setTemplateConfig(config);
+
     // Validate base path
     try {
       const basePath = configManager.get('basePath');
@@ -250,12 +263,6 @@ async function main() {
     // Create and start main server
     const server = new MDServer(configManager);
     await server.start();
-
-    // Create and start admin server
-    const adminConfigManager = new AdminConfig();
-    const adminConfig = await adminConfigManager.load();
-    const adminServer = new AdminServer(adminConfig);
-    await adminServer.start();
 
     // Graceful shutdown
     const shutdown = async () => {
